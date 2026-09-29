@@ -5,7 +5,7 @@ const Navbar = () => {
   return (
     <nav className="flex items-center justify-between py-5 font-medium border-b border-gray-200 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw]">
       <div className="text-2xl font-bold tracking-wider">
-        FOREVER<span className="text-pink-500">.</span>
+        FORMALFIT<span className="text-pink-500">.</span>
       </div>
       <ul className="hidden sm:flex gap-6 text-sm text-gray-700">
         <li className="flex flex-col items-center gap-1 cursor-pointer">
