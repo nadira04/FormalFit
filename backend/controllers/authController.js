@@ -6,6 +6,27 @@ const signup = async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
+
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                message: "Please enter a valid email address"
+            });
+        }
+
+        if (!passwordRegex.test(password)) {
+            return res.status(400).json({
+                message: "Password must contain uppercase, lowercase and a number, and be at least 6 characters"
+            });
+        }
+
+        if (!name || name.trim().length < 2) {
+            return res.status(400).json({
+                message: "Please enter a valid name"
+            });
+        }
+
         const existingUser = await User.findOne({ email });
 
         if (existingUser) {
@@ -30,6 +51,7 @@ const signup = async (req, res) => {
                 email: user.email
             }
         });
+
     } catch (error) {
         res.status(500).json({
             message: "Server error"
@@ -41,11 +63,25 @@ const login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                message: "Please enter a valid email address"
+            });
+        }
+
+        if (!password) {
+            return res.status(400).json({
+                message: "Please enter your password"
+            });
+        }
+
         const user = await User.findOne({ email });
 
         if (!user) {
-            return res.status(400).json({
-                message: "Invalid email or password"
+            return res.status(404).json({
+                message: "Account not found. Please register first."
             });
         }
 
@@ -53,7 +89,7 @@ const login = async (req, res) => {
 
         if (!isMatch) {
             return res.status(400).json({
-                message: "Invalid email or password"
+                message: "Incorrect password"
             });
         }
 
@@ -72,6 +108,7 @@ const login = async (req, res) => {
                 email: user.email
             }
         });
+
     } catch (error) {
         res.status(500).json({
             message: "Server error"

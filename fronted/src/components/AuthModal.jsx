@@ -31,6 +31,42 @@ const AuthModal = ({
         e.preventDefault();
 
         setError("");
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
+
+        if (!emailRegex.test(formData.email)) {
+            showToast(
+                "Please enter a valid email address",
+                "error"
+            );
+            return;
+        }
+
+        if (!isLogin && !passwordRegex.test(formData.password)) {
+            showToast(
+                "Password must contain uppercase, lowercase and a number, and be at least 6 characters",
+                "error"
+            );
+            return;
+        }
+
+        if (isLogin && formData.password.length === 0) {
+            showToast(
+                "Please enter your password",
+                "error"
+            );
+            return;
+        }
+
+        if (!isLogin && formData.name.trim().length < 2) {
+            showToast(
+                "Please enter your name",
+                "error"
+            );
+            return;
+        }
+
         setLoading(true);
 
         try {
@@ -188,9 +224,13 @@ const AuthModal = ({
                                 placeholder="Enter your password"
                                 value={formData.password}
                                 onChange={handleChange}
-                                autoComplete="current-password"
+                                autoComplete={
+                                    isLogin
+                                        ? "current-password"
+                                        : "new-password"
+                                }
                                 required
-                                minLength="6"
+                                minLength={6}
                             />
 
                         </div>
