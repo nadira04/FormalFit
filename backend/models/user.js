@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
@@ -13,7 +14,11 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true
-    }
+    },
+    roles: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Role"
+    }]
 }, {
     timestamps: true
 });

@@ -1,11 +1,16 @@
-import React from 'react';
-import { FiSearch, FiUser, FiShoppingBag } from 'react-icons/fi';
 
-const Navbar = ({ onLoginClick, isLoggedIn, user, onLogout }) => {
+import React from 'react';
+import { FiSearch, FiUser, FiShoppingBag, FiGrid } from 'react-icons/fi';
+
+const Navbar = ({ onLoginClick, isLoggedIn, user, onLogout, onDashboardClick }) => {
+  const roles = (user?.roles || []).map((role) =>
+    typeof role === 'string' ? role.toLowerCase() : role?.name?.toLowerCase()
+  );
+
   return (
     <nav className="flex items-center justify-between py-5 font-medium border-b border-gray-200 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw]">
 
-      <div className="text-2xl font-bold tracking-wider">
+      <div className="text-2xl font-bold tracking-wider cursor-pointer">
         FORMALFIT<span className="text-pink-500">.</span>
       </div>
 
@@ -14,14 +19,12 @@ const Navbar = ({ onLoginClick, isLoggedIn, user, onLogout }) => {
           <p>HOME</p>
           <hr className="w-2/4 border-none h-[1.5px] bg-gray-700" />
         </li>
-
         <li className="cursor-pointer">COLLECTION</li>
         <li className="cursor-pointer">ABOUT</li>
         <li className="cursor-pointer">CONTACT</li>
       </ul>
 
-      <div className="flex items-center gap-6">
-
+      <div className="flex items-center gap-4">
         <FiSearch className="w-5 h-5 cursor-pointer text-gray-700" />
 
         {!isLoggedIn ? (
@@ -35,6 +38,18 @@ const Navbar = ({ onLoginClick, isLoggedIn, user, onLogout }) => {
               {user?.name}
             </span>
 
+            {(roles.includes('admin') ||
+              roles.includes('moderator') ||
+              roles.includes('user')) && (
+                <button
+                  onClick={onDashboardClick}
+                  className="flex items-center gap-1 text-sm text-gray-600 hover:text-pink-500"
+                >
+                  <FiGrid />
+                  Dashboard
+                </button>
+              )}
+
             <button
               onClick={onLogout}
               className="text-sm text-gray-500 hover:text-black cursor-pointer"
@@ -46,12 +61,10 @@ const Navbar = ({ onLoginClick, isLoggedIn, user, onLogout }) => {
 
         <div className="relative cursor-pointer">
           <FiShoppingBag className="w-5 h-5 text-gray-700" />
-
           <span className="absolute -right-1 -bottom-1 w-4 h-4 bg-black text-white rounded-full text-[10px] flex items-center justify-center">
             0
           </span>
         </div>
-
       </div>
     </nav>
   );

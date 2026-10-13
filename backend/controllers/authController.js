@@ -1,4 +1,7 @@
+
 const User = require("../models/user");
+const Role = require("../models/Role");
+require("../models/Permission");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -9,13 +12,13 @@ const signup = async (req, res) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
 
-        if (!emailRegex.test(email)) {
+        if (!email || !emailRegex.test(email)) {
             return res.status(400).json({
                 message: "Please enter a valid email address"
             });
         }
 
-        if (!passwordRegex.test(password)) {
+        if (!password || !passwordRegex.test(password)) {
             return res.status(400).json({
                 message: "Password must contain uppercase, lowercase and a number, and be at least 6 characters"
             });
@@ -27,7 +30,8 @@ const signup = async (req, res) => {
             });
         }
 
-        const existingUser = await User.findOne({ email });
+        const normalizedEmail = email.trim().toLowerCase();
+        const existingUser = await User.findOne({ email: normalizedEmail });
 
         if (existingUser) {
             return res.status(400).json({
@@ -35,12 +39,21 @@ const signup = async (req, res) => {
             });
         }
 
+        const userRole = await Role.findOne({ name: "user" });
+
+        if (!userRole) {
+            return res.status(500).json({
+                message: "Default user role is not configured"
+            });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = await User.create({
-            name,
-            email,
-            password: hashedPassword
+            name: name.trim(),
+            email: normalizedEmail,
+            password: hashedPassword,
+            roles: [userRole._id]
         });
 
         res.status(201).json({
@@ -48,11 +61,13 @@ const signup = async (req, res) => {
             user: {
                 id: user._id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                roles: ["user"]
             }
         });
 
     } catch (error) {
+        console.error("Signup error:", error.message);
         res.status(500).json({
             message: "Server error"
         });
@@ -65,7 +80,7 @@ const login = async (req, res) => {
 
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-        if (!emailRegex.test(email)) {
+        if (!email || !emailRegex.test(email)) {
             return res.status(400).json({
                 message: "Please enter a valid email address"
             });
@@ -77,7 +92,8 @@ const login = async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ email });
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await User.findOne({ email: normalizedEmail });
 
         if (!user) {
             return res.status(404).json({
@@ -93,6 +109,37 @@ const login = async (req, res) => {
             });
         }
 
+        const populatedUser = await User.findById(user._id)
+            .populate({
+                path: "roles",
+                populate: {
+                    path: "permissions",
+                    select: "name"
+                }
+            });
+
+        if (!populatedUser) {
+            return res.status(500).json({
+                message: "User data could not be loaded"
+            });
+        }
+
+        const roles = populatedUser.roles
+            .filter(role => role)
+            .map(role => role.name);
+
+        const permissions = [
+            ...new Set(
+                populatedUser.roles
+                    .filter(role => role)
+                    .flatMap(role =>
+                        (role.permissions || [])
+                            .filter(permission => permission)
+                            .map(permission => permission.name)
+                    )
+            )
+        ];
+
         const token = jwt.sign(
             { id: user._id },
             process.env.JWT_SECRET,
@@ -105,13 +152,16 @@ const login = async (req, res) => {
             user: {
                 id: user._id,
                 name: user.name,
-                email: user.email
+                email: user.email,
+                roles,
+                permissions
             }
         });
 
     } catch (error) {
+        console.log("LOGIN ERROR:", error);
         res.status(500).json({
-            message: "Server error"
+            message: error.message
         });
     }
 };
