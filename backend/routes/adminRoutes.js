@@ -8,6 +8,8 @@ const {
     getUsers,
     getRoles,
     getPermissions,
+    assignUserRole,
+    deleteUser,
     createRole,
     updateRole,
     deleteRole,
@@ -30,6 +32,20 @@ router.get(
     authMiddleware,
     permissionMiddleware("user.view"),
     getUsers
+);
+
+router.put(
+    "/users/:id/role",
+    authMiddleware,
+    permissionMiddleware("user.update"),
+    assignUserRole
+);
+
+router.delete(
+    "/users/:id",
+    authMiddleware,
+    permissionMiddleware("user.delete"),
+    deleteUser
 );
 
 router.get(

@@ -1,3 +1,4 @@
+
 const User = require("../models/user");
 const Role = require("../models/Role");
 const Permission = require("../models/Permission");
@@ -21,7 +22,8 @@ const getUsers = async (req, res) => {
     try {
         const users = await User.find()
             .select("-password")
-            .populate("roles", "name");
+            .populate("roles", "name")
+            .sort({ createdAt: -1 });
 
         res.json(users);
     } catch (error) {
@@ -53,9 +55,110 @@ const getPermissions = async (req, res) => {
     }
 };
 
+const assignUserRole = async (req, res) => {
+    try {
+        const { roleId } = req.body;
+
+        if (!roleId) {
+            return res.status(400).json({
+                message: "Please select a role"
+            });
+        }
+
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        const role = await Role.findById(roleId);
+
+        if (!role) {
+            return res.status(404).json({
+                message: "Role not found"
+            });
+        }
+
+        user.roles = [role._id];
+        await user.save();
+
+        const updatedUser = await User.findById(user._id)
+            .select("-password")
+            .populate("roles", "name");
+
+        res.json({
+            message: "User role updated successfully",
+            user: updatedUser
+        });
+    } catch (error) {
+        console.error("Assign role error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+const deleteUser = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        // Prevent deleting the currently logged-in admin.
+        if (String(user._id) === String(req.user._id)) {
+            return res.status(400).json({
+                message: "You cannot delete your own account"
+            });
+        }
+
+        const targetRoles = await Role.find({
+            _id: { $in: user.roles }
+        }).select("name");
+
+        const isAdmin = targetRoles.some(
+            (role) => role.name.toLowerCase() === "admin"
+        );
+
+        // Prevent deleting the last admin account.
+        if (isAdmin) {
+            const adminRole = await Role.findOne({ name: "admin" });
+
+            if (adminRole) {
+                const adminCount = await User.countDocuments({
+                    roles: adminRole._id
+                });
+
+                if (adminCount <= 1) {
+                    return res.status(400).json({
+                        message: "Cannot delete the last admin"
+                    });
+                }
+            }
+        }
+
+        await user.deleteOne();
+
+        res.json({
+            message: "User deleted successfully",
+            userId: user._id
+        });
+    } catch (error) {
+        console.error("Delete user error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 const createRole = async (req, res) => {
     try {
-        const { name, description = "", permissions = [] } = req.body;
+        const {
+            name,
+            description = "",
+            permissions = []
+        } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({
@@ -78,11 +181,13 @@ const createRole = async (req, res) => {
             });
         }
 
+        const uniquePermissions = [...new Set(permissions)];
+
         const validPermissions = await Permission.find({
-            _id: { $in: permissions }
+            _id: { $in: uniquePermissions }
         }).select("_id");
 
-        if (validPermissions.length !== new Set(permissions).size) {
+        if (validPermissions.length !== uniquePermissions.length) {
             return res.status(400).json({
                 message: "One or more permissions are invalid"
             });
@@ -91,7 +196,7 @@ const createRole = async (req, res) => {
         const role = await Role.create({
             name: normalizedName,
             description: description.trim(),
-            permissions
+            permissions: uniquePermissions
         });
 
         const savedRole = await Role.findById(role._id)
@@ -126,7 +231,7 @@ const updateRole = async (req, res) => {
         }
 
         if (name !== undefined) {
-            if (!name.trim()) {
+            if (typeof name !== "string" || !name.trim()) {
                 return res.status(400).json({
                     message: "Role name is required"
                 });
@@ -159,17 +264,19 @@ const updateRole = async (req, res) => {
                 });
             }
 
+            const uniquePermissions = [...new Set(permissions)];
+
             const validPermissions = await Permission.find({
-                _id: { $in: permissions }
+                _id: { $in: uniquePermissions }
             }).select("_id");
 
-            if (validPermissions.length !== new Set(permissions).size) {
+            if (validPermissions.length !== uniquePermissions.length) {
                 return res.status(400).json({
                     message: "One or more permissions are invalid"
                 });
             }
 
-            role.permissions = permissions;
+            role.permissions = uniquePermissions;
         }
 
         await role.save();
@@ -204,7 +311,7 @@ const deleteRole = async (req, res) => {
             });
         }
 
-        if (["admin", "user"].includes(role.name)) {
+        if (["admin", "user"].includes(role.name.toLowerCase())) {
             return res.status(400).json({
                 message: "Cannot delete the default admin or user role"
             });
@@ -222,9 +329,7 @@ const deleteRole = async (req, res) => {
         });
     } catch (error) {
         console.error("Delete role error:", error);
-        res.status(500).json({
-            message: "Server error"
-        });
+        res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -239,7 +344,6 @@ const createPermission = async (req, res) => {
         }
 
         const normalizedName = name.trim().toLowerCase();
-
         const exists = await Permission.findOne({
             name: normalizedName
         });
@@ -284,7 +388,7 @@ const updatePermission = async (req, res) => {
         }
 
         if (name !== undefined) {
-            if (!name.trim()) {
+            if (typeof name !== "string" || !name.trim()) {
                 return res.status(400).json({
                     message: "Permission name is required"
                 });
@@ -351,9 +455,7 @@ const deletePermission = async (req, res) => {
         });
     } catch (error) {
         console.error("Delete permission error:", error);
-        res.status(500).json({
-            message: "Server error"
-        });
+        res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -362,6 +464,8 @@ module.exports = {
     getUsers,
     getRoles,
     getPermissions,
+    assignUserRole,
+    deleteUser,
     createRole,
     updateRole,
     deleteRole,
