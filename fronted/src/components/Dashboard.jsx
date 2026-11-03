@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useState } from "react";
 
 const API_URL = (
@@ -35,6 +34,13 @@ const Dashboard = ({ user, onBack }) => {
     const [roles, setRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
     const [products, setProducts] = useState([]);
+
+    const [contacts, setContacts] = useState([]);
+    const [contactStats, setContactStats] = useState({
+        totalMessages: 0,
+        unreadMessages: 0
+    });
+    const [contactLoading, setContactLoading] = useState(false);
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -98,6 +104,22 @@ const Dashboard = ({ user, onBack }) => {
         setProducts(Array.isArray(data) ? data : data.products || []);
     }, []);
 
+    const loadContacts = useCallback(async () => {
+        setContactLoading(true);
+
+        try {
+            const data = await apiRequest("/contacts");
+
+            setContacts(data.contacts || []);
+
+            setContactStats({
+                totalMessages: data.totalMessages || 0,
+                unreadMessages: data.unreadMessages || 0
+            });
+        } finally {
+            setContactLoading(false);
+        }
+    }, [apiRequest]);
     const loadData = useCallback(async () => {
         setLoading(true);
         setError("");
@@ -124,10 +146,34 @@ const Dashboard = ({ user, onBack }) => {
                 const selections = {};
 
                 userData.forEach((item) => {
-                    selections[item._id] = item.roles?.[0]?._id || "";
+                    const currentRole = item.roles?.[0];
+
+                    selections[item._id] = currentRole?._id || "";
                 });
 
                 setUserRoleSelections(selections);
+
+                try {
+                    const contactData = await apiRequest("/contacts");
+
+                    setContacts(contactData.contacts || []);
+
+                    setContactStats({
+                        totalMessages: contactData.totalMessages || 0,
+                        unreadMessages: contactData.unreadMessages || 0
+                    });
+                } catch (contactError) {
+                    console.error(
+                        "Contact API Error:",
+                        contactError.message
+                    );
+
+                    setContacts([]);
+                    setContactStats({
+                        totalMessages: 0,
+                        unreadMessages: 0
+                    });
+                }
             }
 
             if (isModerator) {
@@ -135,6 +181,7 @@ const Dashboard = ({ user, onBack }) => {
             }
         } catch (err) {
             setError(err.message);
+            console.error("Dashboard API Error:", err);
         } finally {
             setLoading(false);
         }
@@ -359,6 +406,63 @@ const Dashboard = ({ user, onBack }) => {
             setUserSaving(false);
         }
     };
+    const replyViaEmail = (contact) => {
+        const to = encodeURIComponent(contact.email);
+        const subject = encodeURIComponent(
+            `Re: ${contact.subject || "Your Message"}`
+        );
+
+        const body = encodeURIComponent(
+            `Hello ${contact.name},\n\nThank you for contacting FormalFit.\n\n`
+        );
+
+        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${subject}&body=${body}`;
+
+        window.open(gmailUrl, "_blank", "noopener,noreferrer");
+    };
+    const updateContact = async (contact) => {
+        setError("");
+        setNotice("");
+
+        try {
+            const newStatus =
+                contact.status === "Unread" ? "Read" : "Unread";
+
+            const result = await apiRequest(`/contacts/${contact._id}`, {
+                method: "PUT",
+                body: JSON.stringify({
+                    status: newStatus
+                })
+            });
+
+            showNotice(result.message || "Message status updated");
+            await loadContacts();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    const removeContact = async (contact) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to delete the message from "${contact.name}"?`
+        );
+
+        if (!confirmed) return;
+
+        setError("");
+        setNotice("");
+
+        try {
+            const result = await apiRequest(`/contacts/${contact._id}`, {
+                method: "DELETE"
+            });
+
+            showNotice(result.message || "Message deleted successfully");
+            await loadContacts();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
 
     const saveProduct = async (event) => {
         event.preventDefault();
@@ -482,7 +586,8 @@ const Dashboard = ({ user, onBack }) => {
         ["overview", "Overview"],
         ["users", "Users"],
         ["roles", "Roles"],
-        ["permissions", "Permissions"]
+        ["permissions", "Permissions"],
+        ["contacts", "Contact Messages"]
     ];
 
     return (
@@ -493,9 +598,11 @@ const Dashboard = ({ user, onBack }) => {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
                             FORMALFIT
                         </p>
+
                         <h1 className="mt-2 text-3xl font-bold tracking-tight">
                             {roleName} Dashboard
                         </h1>
+
                         <p className="mt-2 text-sm text-gray-500">
                             Welcome, {user?.name || "User"}
                         </p>
@@ -525,11 +632,17 @@ const Dashboard = ({ user, onBack }) => {
                                 key={value}
                                 onClick={() => setTab(value)}
                                 className={`rounded-md px-4 py-2.5 text-sm font-medium transition ${tab === value
-                                        ? "bg-black text-white"
-                                        : "bg-white text-gray-600 hover:bg-gray-100 hover:text-black"
+                                    ? "bg-black text-white"
+                                    : "bg-white text-gray-600 hover:bg-gray-100 hover:text-black"
                                     }`}
                             >
                                 {label}
+                                {value === "contacts" &&
+                                    contactStats.unreadMessages > 0 && (
+                                        <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">
+                                            {contactStats.unreadMessages}
+                                        </span>
+                                    )}
                             </button>
                         ))}
                     </div>
@@ -551,13 +664,18 @@ const Dashboard = ({ user, onBack }) => {
                                     {[
                                         ["Total Users", stats.totalUsers],
                                         ["Total Roles", stats.totalRoles],
-                                        ["Total Permissions", stats.totalPermissions]
+                                        ["Total Permissions", stats.totalPermissions],
+                                        ["Total Messages", contactStats.totalMessages],
+                                        ["Unread Messages", contactStats.unreadMessages]
                                     ].map(([label, value]) => (
                                         <div
                                             key={label}
                                             className="rounded-lg border border-gray-200 bg-white p-6"
                                         >
-                                            <p className="text-sm text-gray-500">{label}</p>
+                                            <p className="text-sm text-gray-500">
+                                                {label}
+                                            </p>
+
                                             <p className="mt-3 text-3xl font-semibold">
                                                 {value ?? 0}
                                             </p>
@@ -574,16 +692,20 @@ const Dashboard = ({ user, onBack }) => {
                                         {[
                                             ["users", "Manage Users"],
                                             ["roles", "Manage Roles"],
-                                            ["permissions", "Manage Permissions"]
+                                            ["permissions", "Manage Permissions"],
+                                            ["contacts", "Contact Messages"]
                                         ].map(([value, label]) => (
                                             <button
                                                 key={value}
                                                 onClick={() => setTab(value)}
                                                 className="rounded-md border border-gray-200 p-5 text-left transition hover:border-black hover:bg-gray-50"
                                             >
-                                                <p className="font-medium">{label}</p>
+                                                <p className="font-medium">
+                                                    {label}
+                                                </p>
+
                                                 <p className="mt-1 text-sm text-gray-500">
-                                                    View and manage {value}
+                                                    View and manage {label.toLowerCase()}
                                                 </p>
                                             </button>
                                         ))}
@@ -596,7 +718,10 @@ const Dashboard = ({ user, onBack }) => {
                             <section>
                                 <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
                                     <div>
-                                        <h2 className="text-xl font-semibold">User Management</h2>
+                                        <h2 className="text-xl font-semibold">
+                                            User Management
+                                        </h2>
+
                                         <p className="mt-1 text-sm text-gray-500">
                                             Registered users and their assigned roles.
                                         </p>
@@ -606,7 +731,11 @@ const Dashboard = ({ user, onBack }) => {
                                         <span className="rounded-md border border-gray-200 px-3 py-2 text-sm">
                                             Total: {users.length} users
                                         </span>
-                                        <button onClick={loadData} className={secondaryButtonClass}>
+
+                                        <button
+                                            onClick={loadData}
+                                            className={secondaryButtonClass}
+                                        >
                                             Refresh
                                         </button>
                                     </div>
@@ -626,9 +755,9 @@ const Dashboard = ({ user, onBack }) => {
 
                                         <tbody className="divide-y divide-gray-100">
                                             {users.map((listedUser) => {
-                                                const currentRoleIds = (listedUser.roles || []).map(
-                                                    (role) => role._id
-                                                );
+                                                const currentRoleIds = (
+                                                    listedUser.roles || []
+                                                ).map((role) => role._id);
 
                                                 const selectedRole =
                                                     userRoleSelections[listedUser._id] || "";
@@ -642,21 +771,30 @@ const Dashboard = ({ user, onBack }) => {
                                                     String(user?._id || user?.id);
 
                                                 return (
-                                                    <tr key={listedUser._id} className="hover:bg-gray-50">
+                                                    <tr
+                                                        key={listedUser._id}
+                                                        className="hover:bg-gray-50"
+                                                    >
                                                         <td className="px-5 py-4">
-                                                            <p className="font-medium">{listedUser.name}</p>
+                                                            <p className="font-medium">
+                                                                {listedUser.name}
+                                                            </p>
+
                                                             <p className="mt-1 text-xs text-gray-500">
                                                                 ID: {listedUser._id}
                                                             </p>
                                                         </td>
+
                                                         <td className="px-5 py-4 text-gray-600">
                                                             {listedUser.email}
                                                         </td>
+
                                                         <td className="px-5 py-4">
                                                             {(listedUser.roles || [])
                                                                 .map((role) => role.name)
                                                                 .join(", ") || "No role"}
                                                         </td>
+
                                                         <td className="px-5 py-4">
                                                             <select
                                                                 value={selectedRole}
@@ -669,14 +807,21 @@ const Dashboard = ({ user, onBack }) => {
                                                                 }
                                                                 className="w-40 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
                                                             >
-                                                                <option value="">Select role</option>
+                                                                <option value="">
+                                                                    Select role
+                                                                </option>
+
                                                                 {roles.map((role) => (
-                                                                    <option key={role._id} value={role._id}>
+                                                                    <option
+                                                                        key={role._id}
+                                                                        value={role._id}
+                                                                    >
                                                                         {role.name}
                                                                     </option>
                                                                 ))}
                                                             </select>
                                                         </td>
+
                                                         <td className="px-5 py-4">
                                                             <div className="flex flex-wrap gap-2">
                                                                 {isSelf ? (
@@ -686,14 +831,23 @@ const Dashboard = ({ user, onBack }) => {
                                                                 ) : (
                                                                     <>
                                                                         <button
-                                                                            onClick={() => assignRoleToUser(listedUser._id)}
-                                                                            disabled={userSaving || !selectedRole || unchanged}
+                                                                            onClick={() =>
+                                                                                assignRoleToUser(listedUser._id)
+                                                                            }
+                                                                            disabled={
+                                                                                userSaving ||
+                                                                                !selectedRole ||
+                                                                                unchanged
+                                                                            }
                                                                             className={buttonClass}
                                                                         >
                                                                             Assign
                                                                         </button>
+
                                                                         <button
-                                                                            onClick={() => deleteUserAccount(listedUser)}
+                                                                            onClick={() =>
+                                                                                deleteUserAccount(listedUser)
+                                                                            }
                                                                             disabled={userSaving}
                                                                             className={deleteButtonClass}
                                                                         >
@@ -709,7 +863,10 @@ const Dashboard = ({ user, onBack }) => {
 
                                             {users.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={5} className="px-5 py-10 text-center text-gray-500">
+                                                    <td
+                                                        colSpan={5}
+                                                        className="px-5 py-10 text-center text-gray-500"
+                                                    >
                                                         No registered users found.
                                                     </td>
                                                 </tr>
@@ -722,10 +879,15 @@ const Dashboard = ({ user, onBack }) => {
 
                         {tab === "roles" && (
                             <section>
-                                <h2 className="mb-5 text-xl font-semibold">Role Management</h2>
+                                <h2 className="mb-5 text-xl font-semibold">
+                                    Role Management
+                                </h2>
 
                                 <div className="grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-                                    <form onSubmit={saveRole} className="h-fit rounded-lg border border-gray-200 p-5">
+                                    <form
+                                        onSubmit={saveRole}
+                                        className="h-fit rounded-lg border border-gray-200 p-5"
+                                    >
                                         <h3 className="text-lg font-semibold">
                                             {roleForm.id ? "Edit Role" : "Create Role"}
                                         </h3>
@@ -734,10 +896,12 @@ const Dashboard = ({ user, onBack }) => {
                                             Role Name
                                             <input
                                                 value={roleForm.name}
-                                                onChange={(e) => setRoleForm({
-                                                    ...roleForm,
-                                                    name: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setRoleForm({
+                                                        ...roleForm,
+                                                        name: e.target.value
+                                                    })
+                                                }
                                                 required
                                                 placeholder="e.g. moderator"
                                                 className={inputClass}
@@ -748,28 +912,44 @@ const Dashboard = ({ user, onBack }) => {
                                             Description
                                             <textarea
                                                 value={roleForm.description}
-                                                onChange={(e) => setRoleForm({
-                                                    ...roleForm,
-                                                    description: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setRoleForm({
+                                                        ...roleForm,
+                                                        description: e.target.value
+                                                    })
+                                                }
                                                 rows={3}
                                                 className={inputClass}
                                             />
                                         </label>
 
                                         <div className="mt-5">
-                                            <p className="text-sm font-medium">Assign Permissions</p>
+                                            <p className="text-sm font-medium">
+                                                Assign Permissions
+                                            </p>
+
                                             <div className="mt-3 max-h-72 space-y-3 overflow-y-auto rounded-md border border-gray-200 p-3">
                                                 {permissions.map((permission) => (
-                                                    <label key={permission._id} className="flex cursor-pointer items-start gap-3 text-sm">
+                                                    <label
+                                                        key={permission._id}
+                                                        className="flex cursor-pointer items-start gap-3 text-sm"
+                                                    >
                                                         <input
                                                             type="checkbox"
-                                                            checked={roleForm.permissions.includes(permission._id)}
-                                                            onChange={() => togglePermission(permission._id)}
+                                                            checked={roleForm.permissions.includes(
+                                                                permission._id
+                                                            )}
+                                                            onChange={() =>
+                                                                togglePermission(permission._id)
+                                                            }
                                                             className="mt-1 accent-black"
                                                         />
+
                                                         <span>
-                                                            <span className="block font-medium">{permission.name}</span>
+                                                            <span className="block font-medium">
+                                                                {permission.name}
+                                                            </span>
+
                                                             {permission.description && (
                                                                 <span className="text-xs text-gray-500">
                                                                     {permission.description}
@@ -778,18 +958,34 @@ const Dashboard = ({ user, onBack }) => {
                                                         </span>
                                                     </label>
                                                 ))}
+
                                                 {permissions.length === 0 && (
-                                                    <p className="text-sm text-gray-500">No permissions found.</p>
+                                                    <p className="text-sm text-gray-500">
+                                                        No permissions found.
+                                                    </p>
                                                 )}
                                             </div>
                                         </div>
 
                                         <div className="mt-5 flex flex-wrap gap-2">
-                                            <button type="submit" disabled={saving} className={buttonClass}>
-                                                {saving ? "Saving..." : roleForm.id ? "Update Role" : "Create Role"}
+                                            <button
+                                                type="submit"
+                                                disabled={saving}
+                                                className={buttonClass}
+                                            >
+                                                {saving
+                                                    ? "Saving..."
+                                                    : roleForm.id
+                                                        ? "Update Role"
+                                                        : "Create Role"}
                                             </button>
+
                                             {roleForm.id && (
-                                                <button type="button" onClick={resetRoleForm} className={secondaryButtonClass}>
+                                                <button
+                                                    type="button"
+                                                    onClick={resetRoleForm}
+                                                    className={secondaryButtonClass}
+                                                >
                                                     Cancel
                                                 </button>
                                             )}
@@ -797,24 +993,40 @@ const Dashboard = ({ user, onBack }) => {
                                     </form>
 
                                     <div className="rounded-lg border border-gray-200 p-5">
-                                        <h3 className="text-lg font-semibold">All Roles</h3>
+                                        <h3 className="text-lg font-semibold">
+                                            All Roles
+                                        </h3>
+
                                         <div className="mt-4 space-y-3">
                                             {roles.map((role) => (
-                                                <div key={role._id} className="rounded-md border border-gray-200 p-4">
+                                                <div
+                                                    key={role._id}
+                                                    className="rounded-md border border-gray-200 p-4"
+                                                >
                                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                                         <div>
-                                                            <h4 className="font-semibold capitalize">{role.name}</h4>
+                                                            <h4 className="font-semibold capitalize">
+                                                                {role.name}
+                                                            </h4>
+
                                                             <p className="mt-1 text-sm text-gray-500">
                                                                 {role.description || "No description"}
                                                             </p>
                                                         </div>
+
                                                         <div className="flex gap-2">
-                                                            <button onClick={() => editRole(role)} className={secondaryButtonClass}>
+                                                            <button
+                                                                onClick={() => editRole(role)}
+                                                                className={secondaryButtonClass}
+                                                            >
                                                                 Edit
                                                             </button>
+
                                                             <button
                                                                 onClick={() => removeRole(role)}
-                                                                disabled={["admin", "user"].includes(role.name.toLowerCase())}
+                                                                disabled={["admin", "user"].includes(
+                                                                    role.name.toLowerCase()
+                                                                )}
                                                                 className={deleteButtonClass}
                                                             >
                                                                 Delete
@@ -825,22 +1037,33 @@ const Dashboard = ({ user, onBack }) => {
                                                     <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500">
                                                         Permissions
                                                     </p>
+
                                                     <div className="mt-2 flex flex-wrap gap-2">
-                                                        {(role.permissions || []).map((permission) => (
-                                                            <span key={permission._id} className="rounded-md border border-gray-200 px-2 py-1 text-xs">
-                                                                {permission.name}
-                                                            </span>
-                                                        ))}
-                                                        {(!role.permissions || role.permissions.length === 0) && (
-                                                            <span className="text-sm text-gray-500">
-                                                                No permissions assigned
-                                                            </span>
+                                                        {(role.permissions || []).map(
+                                                            (permission) => (
+                                                                <span
+                                                                    key={permission._id}
+                                                                    className="rounded-md border border-gray-200 px-2 py-1 text-xs"
+                                                                >
+                                                                    {permission.name}
+                                                                </span>
+                                                            )
                                                         )}
+
+                                                        {(!role.permissions ||
+                                                            role.permissions.length === 0) && (
+                                                                <span className="text-sm text-gray-500">
+                                                                    No permissions assigned
+                                                                </span>
+                                                            )}
                                                     </div>
                                                 </div>
                                             ))}
+
                                             {roles.length === 0 && (
-                                                <p className="text-sm text-gray-500">No roles found.</p>
+                                                <p className="text-sm text-gray-500">
+                                                    No roles found.
+                                                </p>
                                             )}
                                         </div>
                                     </div>
@@ -850,22 +1073,31 @@ const Dashboard = ({ user, onBack }) => {
 
                         {tab === "permissions" && (
                             <section>
-                                <h2 className="mb-5 text-xl font-semibold">Permission Management</h2>
+                                <h2 className="mb-5 text-xl font-semibold">
+                                    Permission Management
+                                </h2>
 
                                 <div className="grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-                                    <form onSubmit={savePermission} className="h-fit rounded-lg border border-gray-200 p-5">
+                                    <form
+                                        onSubmit={savePermission}
+                                        className="h-fit rounded-lg border border-gray-200 p-5"
+                                    >
                                         <h3 className="text-lg font-semibold">
-                                            {permissionForm.id ? "Edit Permission" : "Create Permission"}
+                                            {permissionForm.id
+                                                ? "Edit Permission"
+                                                : "Create Permission"}
                                         </h3>
 
                                         <label className="mt-5 block text-sm font-medium">
                                             Permission Name
                                             <input
                                                 value={permissionForm.name}
-                                                onChange={(e) => setPermissionForm({
-                                                    ...permissionForm,
-                                                    name: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setPermissionForm({
+                                                        ...permissionForm,
+                                                        name: e.target.value
+                                                    })
+                                                }
                                                 required
                                                 placeholder="e.g. user.delete"
                                                 className={inputClass}
@@ -876,21 +1108,36 @@ const Dashboard = ({ user, onBack }) => {
                                             Description
                                             <textarea
                                                 value={permissionForm.description}
-                                                onChange={(e) => setPermissionForm({
-                                                    ...permissionForm,
-                                                    description: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setPermissionForm({
+                                                        ...permissionForm,
+                                                        description: e.target.value
+                                                    })
+                                                }
                                                 rows={3}
                                                 className={inputClass}
                                             />
                                         </label>
 
                                         <div className="mt-5 flex flex-wrap gap-2">
-                                            <button type="submit" disabled={saving} className={buttonClass}>
-                                                {saving ? "Saving..." : permissionForm.id ? "Update Permission" : "Create Permission"}
+                                            <button
+                                                type="submit"
+                                                disabled={saving}
+                                                className={buttonClass}
+                                            >
+                                                {saving
+                                                    ? "Saving..."
+                                                    : permissionForm.id
+                                                        ? "Update Permission"
+                                                        : "Create Permission"}
                                             </button>
+
                                             {permissionForm.id && (
-                                                <button type="button" onClick={resetPermissionForm} className={secondaryButtonClass}>
+                                                <button
+                                                    type="button"
+                                                    onClick={resetPermissionForm}
+                                                    className={secondaryButtonClass}
+                                                >
                                                     Cancel
                                                 </button>
                                             )}
@@ -898,66 +1145,254 @@ const Dashboard = ({ user, onBack }) => {
                                     </form>
 
                                     <div className="rounded-lg border border-gray-200 p-5">
-                                        <h3 className="text-lg font-semibold">All Permissions</h3>
+                                        <h3 className="text-lg font-semibold">
+                                            All Permissions
+                                        </h3>
+
                                         <div className="mt-4 space-y-3">
                                             {permissions.map((permission) => (
-                                                <div key={permission._id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 p-4">
+                                                <div
+                                                    key={permission._id}
+                                                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 p-4"
+                                                >
                                                     <div>
-                                                        <h4 className="font-medium">{permission.name}</h4>
+                                                        <h4 className="font-medium">
+                                                            {permission.name}
+                                                        </h4>
+
                                                         <p className="mt-1 text-sm text-gray-500">
-                                                            {permission.description || "No description"}
+                                                            {permission.description ||
+                                                                "No description"}
                                                         </p>
                                                     </div>
+
                                                     <div className="flex gap-2">
-                                                        <button onClick={() => editPermission(permission)} className={secondaryButtonClass}>
+                                                        <button
+                                                            onClick={() =>
+                                                                editPermission(permission)
+                                                            }
+                                                            className={secondaryButtonClass}
+                                                        >
                                                             Edit
                                                         </button>
-                                                        <button onClick={() => removePermission(permission)} className={deleteButtonClass}>
+
+                                                        <button
+                                                            onClick={() =>
+                                                                removePermission(permission)
+                                                            }
+                                                            className={deleteButtonClass}
+                                                        >
                                                             Delete
                                                         </button>
                                                     </div>
                                                 </div>
                                             ))}
+
                                             {permissions.length === 0 && (
-                                                <p className="text-sm text-gray-500">No permissions found.</p>
+                                                <p className="text-sm text-gray-500">
+                                                    No permissions found.
+                                                </p>
                                             )}
                                         </div>
                                     </div>
                                 </div>
                             </section>
                         )}
+
+                        {tab === "contacts" && (
+                            <section>
+                                <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-semibold">
+                                            Contact Messages
+                                        </h2>
+
+                                        <p className="mt-1 text-sm text-gray-500">
+                                            View and manage messages submitted through the contact form.
+                                        </p>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            loadContacts().catch((err) =>
+                                                setError(err.message)
+                                            )
+                                        }
+                                        disabled={contactLoading}
+                                        className={secondaryButtonClass}
+                                    >
+                                        {contactLoading
+                                            ? "Refreshing..."
+                                            : "Refresh Messages"}
+                                    </button>
+                                </div>
+
+                                <div className="mb-6 grid gap-4 sm:grid-cols-2">
+                                    <div className="rounded-lg border border-gray-200 p-5">
+                                        <p className="text-sm text-gray-500">
+                                            Total Messages
+                                        </p>
+
+                                        <p className="mt-2 text-3xl font-semibold">
+                                            {contactStats.totalMessages}
+                                        </p>
+                                    </div>
+
+                                    <div className="rounded-lg border border-gray-200 p-5">
+                                        <p className="text-sm text-gray-500">
+                                            Unread Messages
+                                        </p>
+
+                                        <p className="mt-2 text-3xl font-semibold">
+                                            {contactStats.unreadMessages}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {contactLoading ? (
+                                    <div className="rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+                                        Loading messages...
+                                    </div>
+                                ) : contacts.length === 0 ? (
+                                    <div className="rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+                                        No contact messages found.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {contacts.map((contact) => (
+                                            <div
+                                                key={contact._id}
+                                                className="rounded-lg border border-gray-200 p-5"
+                                            >
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div>
+                                                        <h3 className="text-lg font-semibold">
+                                                            {contact.name}
+                                                        </h3>
+
+                                                        <a
+                                                            href={`mailto:${contact.email}`}
+                                                            className="mt-1 block text-sm text-gray-500 hover:text-black"
+                                                        >
+                                                            {contact.email}
+                                                        </a>
+                                                    </div>
+
+                                                    <span
+                                                        className={`rounded-md px-3 py-1 text-xs font-medium ${contact.status === "Unread"
+                                                            ? "bg-yellow-100 text-yellow-800"
+                                                            : "bg-green-100 text-green-800"
+                                                            }`}
+                                                    >
+                                                        {contact.status}
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-4 border-t border-gray-100 pt-4">
+                                                    <p className="text-sm font-semibold">
+                                                        {contact.subject || "No Subject"}
+                                                    </p>
+
+                                                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-gray-600">
+                                                        {contact.message}
+                                                    </p>
+
+                                                    <p className="mt-4 text-xs text-gray-400">
+                                                        Submitted:{" "}
+                                                        {contact.createdAt
+                                                            ? new Date(
+                                                                contact.createdAt
+                                                            ).toLocaleString()
+                                                            : "Unknown"}
+                                                    </p>
+                                                </div>
+
+                                                <div className="mt-5 flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            updateContact(contact)
+                                                        }
+                                                        className={secondaryButtonClass}
+                                                    >
+                                                        Mark as{" "}
+                                                        {contact.status === "Unread"
+                                                            ? "Read"
+                                                            : "Unread"}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => replyViaEmail(contact)}
+                                                        className="rounded-md bg-green-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-green-700"
+                                                    >
+                                                        Reply via Email
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            removeContact(contact)
+                                                        }
+                                                        className={deleteButtonClass}
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+                        )}
                     </>
                 ) : (
                     <section>
                         <div className="rounded-lg border border-gray-200 p-6">
-                            <h2 className="text-xl font-semibold">My Account</h2>
+                            <h2 className="text-xl font-semibold">
+                                My Account
+                            </h2>
+
                             <p className="mt-2 text-sm text-gray-500">
                                 Your dashboard features depend on your assigned role.
                             </p>
-                            <p className="mt-3 text-sm">Email: {user?.email}</p>
-                            <p className="mt-1 text-sm">Role: {roleName}</p>
+
+                            <p className="mt-3 text-sm">
+                                Email: {user?.email}
+                            </p>
+
+                            <p className="mt-1 text-sm">
+                                Role: {roleName}
+                            </p>
                         </div>
 
                         {isModerator && (
                             <>
                                 <div className="mt-6 rounded-lg border border-gray-200 p-6">
                                     <h2 className="text-xl font-semibold">
-                                        {editingProductId ? "Edit Product" : "Add New Product"}
+                                        {editingProductId
+                                            ? "Edit Product"
+                                            : "Add New Product"}
                                     </h2>
+
                                     <p className="mt-2 text-sm text-gray-500">
                                         Enter the product details below.
                                     </p>
 
-                                    <form onSubmit={saveProduct} className="mt-6 space-y-5">
+                                    <form
+                                        onSubmit={saveProduct}
+                                        className="mt-6 space-y-5"
+                                    >
                                         <div className="grid gap-5 sm:grid-cols-2">
                                             <label className="block text-sm font-medium">
                                                 Product Name
                                                 <input
                                                     value={productForm.name}
-                                                    onChange={(e) => setProductForm({
-                                                        ...productForm,
-                                                        name: e.target.value
-                                                    })}
+                                                    onChange={(e) =>
+                                                        setProductForm({
+                                                            ...productForm,
+                                                            name: e.target.value
+                                                        })
+                                                    }
                                                     required
                                                     className={inputClass}
                                                 />
@@ -967,10 +1402,12 @@ const Dashboard = ({ user, onBack }) => {
                                                 Category
                                                 <input
                                                     value={productForm.category}
-                                                    onChange={(e) => setProductForm({
-                                                        ...productForm,
-                                                        category: e.target.value
-                                                    })}
+                                                    onChange={(e) =>
+                                                        setProductForm({
+                                                            ...productForm,
+                                                            category: e.target.value
+                                                        })
+                                                    }
                                                     placeholder="e.g. Shirts, Trousers, Suits"
                                                     required
                                                     className={inputClass}
@@ -982,10 +1419,12 @@ const Dashboard = ({ user, onBack }) => {
                                             Description
                                             <textarea
                                                 value={productForm.description}
-                                                onChange={(e) => setProductForm({
-                                                    ...productForm,
-                                                    description: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setProductForm({
+                                                        ...productForm,
+                                                        description: e.target.value
+                                                    })
+                                                }
                                                 rows={4}
                                                 required
                                                 className={inputClass}
@@ -1000,10 +1439,12 @@ const Dashboard = ({ user, onBack }) => {
                                                     min="0"
                                                     step="0.01"
                                                     value={productForm.price}
-                                                    onChange={(e) => setProductForm({
-                                                        ...productForm,
-                                                        price: e.target.value
-                                                    })}
+                                                    onChange={(e) =>
+                                                        setProductForm({
+                                                            ...productForm,
+                                                            price: e.target.value
+                                                        })
+                                                    }
                                                     required
                                                     className={inputClass}
                                                 />
@@ -1013,16 +1454,26 @@ const Dashboard = ({ user, onBack }) => {
                                                 Currency
                                                 <select
                                                     value={productForm.currency}
-                                                    onChange={(e) => setProductForm({
-                                                        ...productForm,
-                                                        currency: e.target.value
-                                                    })}
+                                                    onChange={(e) =>
+                                                        setProductForm({
+                                                            ...productForm,
+                                                            currency: e.target.value
+                                                        })
+                                                    }
                                                     className={inputClass}
                                                 >
-                                                    <option value="USD">USD ($)</option>
-                                                    <option value="EUR">EUR (€)</option>
-                                                    <option value="GBP">GBP (£)</option>
-                                                    <option value="BDT">BDT (৳)</option>
+                                                    <option value="USD">
+                                                        USD ($)
+                                                    </option>
+                                                    <option value="EUR">
+                                                        EUR (€)
+                                                    </option>
+                                                    <option value="GBP">
+                                                        GBP (£)
+                                                    </option>
+                                                    <option value="BDT">
+                                                        BDT (৳)
+                                                    </option>
                                                 </select>
                                             </label>
                                         </div>
@@ -1032,10 +1483,12 @@ const Dashboard = ({ user, onBack }) => {
                                             <input
                                                 type="url"
                                                 value={productForm.image}
-                                                onChange={(e) => setProductForm({
-                                                    ...productForm,
-                                                    image: e.target.value
-                                                })}
+                                                onChange={(e) =>
+                                                    setProductForm({
+                                                        ...productForm,
+                                                        image: e.target.value
+                                                    })
+                                                }
                                                 placeholder="https://example.com/product.jpg"
                                                 required
                                                 className={inputClass}
@@ -1044,7 +1497,10 @@ const Dashboard = ({ user, onBack }) => {
 
                                         {productForm.image && (
                                             <div>
-                                                <p className="mb-2 text-sm font-medium">Image Preview</p>
+                                                <p className="mb-2 text-sm font-medium">
+                                                    Image Preview
+                                                </p>
+
                                                 <img
                                                     src={productForm.image}
                                                     alt="Product preview"
@@ -1060,7 +1516,11 @@ const Dashboard = ({ user, onBack }) => {
                                         )}
 
                                         <div className="flex flex-wrap gap-2">
-                                            <button type="submit" disabled={productSaving} className={buttonClass}>
+                                            <button
+                                                type="submit"
+                                                disabled={productSaving}
+                                                className={buttonClass}
+                                            >
                                                 {productSaving
                                                     ? "Saving..."
                                                     : editingProductId
@@ -1084,14 +1544,22 @@ const Dashboard = ({ user, onBack }) => {
                                 <div className="mt-6 rounded-lg border border-gray-200 p-6">
                                     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                                         <div>
-                                            <h2 className="text-xl font-semibold">All Products</h2>
+                                            <h2 className="text-xl font-semibold">
+                                                All Products
+                                            </h2>
+
                                             <p className="mt-1 text-sm text-gray-500">
                                                 View, edit or delete products.
                                             </p>
                                         </div>
+
                                         <button
                                             type="button"
-                                            onClick={() => loadProducts().catch((err) => setError(err.message))}
+                                            onClick={() =>
+                                                loadProducts().catch((err) =>
+                                                    setError(err.message)
+                                                )
+                                            }
                                             className={secondaryButtonClass}
                                         >
                                             Refresh Products
@@ -1111,12 +1579,21 @@ const Dashboard = ({ user, onBack }) => {
                                             <table className="w-full min-w-[750px] text-left text-sm">
                                                 <thead className="border-b border-gray-200 bg-gray-50">
                                                     <tr>
-                                                        <th className="px-4 py-3">Product</th>
-                                                        <th className="px-4 py-3">Category</th>
-                                                        <th className="px-4 py-3">Price</th>
-                                                        <th className="px-4 py-3">Actions</th>
+                                                        <th className="px-4 py-3">
+                                                            Product
+                                                        </th>
+                                                        <th className="px-4 py-3">
+                                                            Category
+                                                        </th>
+                                                        <th className="px-4 py-3">
+                                                            Price
+                                                        </th>
+                                                        <th className="px-4 py-3">
+                                                            Actions
+                                                        </th>
                                                     </tr>
                                                 </thead>
+
                                                 <tbody className="divide-y divide-gray-100">
                                                     {products.map((product) => (
                                                         <tr key={product._id}>
@@ -1127,15 +1604,23 @@ const Dashboard = ({ user, onBack }) => {
                                                                         alt={product.name}
                                                                         className="h-14 w-14 rounded object-cover"
                                                                     />
+
                                                                     <div>
-                                                                        <p className="font-medium">{product.name}</p>
+                                                                        <p className="font-medium">
+                                                                            {product.name}
+                                                                        </p>
+
                                                                         <p className="mt-1 max-w-xs truncate text-xs text-gray-500">
                                                                             {product.description}
                                                                         </p>
                                                                     </div>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-4 py-3">{product.category}</td>
+
+                                                            <td className="px-4 py-3">
+                                                                {product.category}
+                                                            </td>
+
                                                             <td className="whitespace-nowrap px-4 py-3">
                                                                 {product.currency === "BDT"
                                                                     ? "৳"
@@ -1146,18 +1631,24 @@ const Dashboard = ({ user, onBack }) => {
                                                                             : "$"}
                                                                 {product.price}
                                                             </td>
+
                                                             <td className="px-4 py-3">
                                                                 <div className="flex gap-2">
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => editProduct(product)}
+                                                                        onClick={() =>
+                                                                            editProduct(product)
+                                                                        }
                                                                         className={secondaryButtonClass}
                                                                     >
                                                                         Edit
                                                                     </button>
+
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => removeProduct(product)}
+                                                                        onClick={() =>
+                                                                            removeProduct(product)
+                                                                        }
                                                                         className={deleteButtonClass}
                                                                     >
                                                                         Delete

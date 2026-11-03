@@ -17,6 +17,11 @@ const {
     updatePermission,
     deletePermission
 } = require("../controllers/adminController");
+const {
+    getContacts,
+    updateContactStatus,
+    deleteContact
+} = require("../controllers/contactController");
 
 const router = express.Router();
 
@@ -103,5 +108,24 @@ router.delete(
     permissionMiddleware("permission.manage"),
     deletePermission
 );
+router.get(
+    "/contacts",
+    authMiddleware,
+    permissionMiddleware("contact.view"),
+    getContacts
+);
 
+router.put(
+    "/contacts/:id",
+    authMiddleware,
+    permissionMiddleware("contact.update"),
+    updateContactStatus
+);
+
+router.delete(
+    "/contacts/:id",
+    authMiddleware,
+    permissionMiddleware("contact.delete"),
+    deleteContact
+);
 module.exports = router;
