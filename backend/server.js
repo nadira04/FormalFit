@@ -8,7 +8,7 @@ const userRoutes = require("./routes/userRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const productRoutes = require("./routes/productRoutes");
 const contactRoutes = require("./routes/contactRoutes");
-
+const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const app = express();
 
 connectDB();
@@ -21,7 +21,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/contact", contactRoutes);
-
+app.use("/api/subscriptions", subscriptionRoutes);
 app.get("/", (req, res) => {
     res.send("FormalFit Backend is running!");
 });

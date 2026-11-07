@@ -109,7 +109,11 @@ function App() {
           <>
             <Hero />
             <LatestCollections />
-            <Features />
+            <Features
+              isLoggedIn={isLoggedIn}
+              onLoginClick={() => setAuthMode("login")}
+              showToast={showToast}
+            />
           </>
         );
     }
