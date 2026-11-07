@@ -36,6 +36,8 @@ const Dashboard = ({ user, onBack }) => {
     const [products, setProducts] = useState([]);
 
     const [contacts, setContacts] = useState([]);
+    const [subscribers, setSubscribers] = useState([]);
+    const [subscriberLoading, setSubscriberLoading] = useState(false);
     const [contactStats, setContactStats] = useState({
         totalMessages: 0,
         unreadMessages: 0
@@ -120,6 +122,20 @@ const Dashboard = ({ user, onBack }) => {
             setContactLoading(false);
         }
     }, [apiRequest]);
+    const loadSubscribers = useCallback(async () => {
+        setSubscriberLoading(true);
+
+        try {
+            const data = await apiRequest("/subscribers");
+
+            setSubscribers(data.subscribers || []);
+
+        } catch (error) {
+            throw error;
+        } finally {
+            setSubscriberLoading(false);
+        }
+    }, [apiRequest]);
     const loadData = useCallback(async () => {
         setLoading(true);
         setError("");
@@ -174,6 +190,19 @@ const Dashboard = ({ user, onBack }) => {
                         unreadMessages: 0
                     });
                 }
+                try {
+                    const subscriberData = await apiRequest("/subscribers");
+
+                    console.log("Subscriber API Response:", subscriberData);
+
+                    setSubscribers(subscriberData.subscribers || []);
+
+                } catch (subscriberError) {
+                    console.error("Subscriber API Error:", subscriberError);
+                    setError(`Subscriber Error: ${subscriberError.message}`);
+                } finally {
+                    setSubscriberLoading(false);
+                }
             }
 
             if (isModerator) {
@@ -185,7 +214,7 @@ const Dashboard = ({ user, onBack }) => {
         } finally {
             setLoading(false);
         }
-    }, [apiRequest, isAdmin, isModerator, loadProducts]);
+    }, [apiRequest, isAdmin, isModerator, loadProducts, loadSubscribers]);
 
     useEffect(() => {
         loadData();
@@ -464,6 +493,48 @@ const Dashboard = ({ user, onBack }) => {
         }
     };
 
+    const exportSubscribersCSV = () => {
+        if (subscribers.length === 0) {
+            setError("No subscribers available to export.");
+            return;
+        }
+
+        const headers = ["Email", "Subscribed Date"];
+
+        const rows = subscribers.map((subscriber) => [
+            subscriber.email,
+            subscriber.createdAt
+                ? new Date(subscriber.createdAt).toLocaleString()
+                : ""
+        ]);
+
+        const csvContent = [headers, ...rows]
+            .map((row) =>
+                row
+                    .map((value) =>
+                        `"${String(value ?? "").replace(/"/g, '""')}"`
+                    )
+                    .join(",")
+            )
+            .join("\n");
+
+        const blob = new Blob(
+            ["\uFEFF" + csvContent],
+            { type: "text/csv;charset=utf-8;" }
+        );
+
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download = "formalfit-subscribers.csv";
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        window.URL.revokeObjectURL(url);
+    };
     const saveProduct = async (event) => {
         event.preventDefault();
         setProductSaving(true);
@@ -587,7 +658,8 @@ const Dashboard = ({ user, onBack }) => {
         ["users", "Users"],
         ["roles", "Roles"],
         ["permissions", "Permissions"],
-        ["contacts", "Contact Messages"]
+        ["contacts", "Contact Messages"],
+        ["subscribers", "Subscribers"]
     ];
 
     return (
@@ -666,7 +738,9 @@ const Dashboard = ({ user, onBack }) => {
                                         ["Total Roles", stats.totalRoles],
                                         ["Total Permissions", stats.totalPermissions],
                                         ["Total Messages", contactStats.totalMessages],
-                                        ["Unread Messages", contactStats.unreadMessages]
+                                        ["Unread Messages", contactStats.unreadMessages],
+                                        ["Total Subscribers", subscribers.length]
+
                                     ].map(([label, value]) => (
                                         <div
                                             key={label}
@@ -693,7 +767,8 @@ const Dashboard = ({ user, onBack }) => {
                                             ["users", "Manage Users"],
                                             ["roles", "Manage Roles"],
                                             ["permissions", "Manage Permissions"],
-                                            ["contacts", "Contact Messages"]
+                                            ["contacts", "Contact Messages"],
+                                            ["subscribers", "Newsletter Subscribers"]
                                         ].map(([value, label]) => (
                                             <button
                                                 key={value}
@@ -1340,6 +1415,122 @@ const Dashboard = ({ user, onBack }) => {
                                                 </div>
                                             </div>
                                         ))}
+                                    </div>
+                                )}
+                            </section>
+                        )}
+                        {tab === "subscribers" && (
+                            <section>
+                                <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-semibold">
+                                            Newsletter Subscribers
+                                        </h2>
+
+                                        <p className="mt-1 text-sm text-gray-500">
+                                            Manage all users subscribed to the FormalFit newsletter.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                loadSubscribers().catch((err) =>
+                                                    setError(err.message)
+                                                )
+                                            }
+                                            disabled={subscriberLoading}
+                                            className={secondaryButtonClass}
+                                        >
+                                            {subscriberLoading ? "Refreshing..." : "Refresh"}
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={exportSubscribersCSV}
+                                            disabled={subscribers.length === 0}
+                                            className={buttonClass}
+                                        >
+                                            Download CSV
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Total Subscribers */}
+                                <div className="mb-6 grid gap-4 sm:grid-cols-2">
+                                    <div className="rounded-lg border border-gray-200 bg-white p-6">
+                                        <p className="text-sm text-gray-500">
+                                            Total Subscribers
+                                        </p>
+
+                                        <p className="mt-3 text-3xl font-semibold">
+                                            {subscribers.length}
+                                        </p>
+                                    </div>
+
+                                    <div className="rounded-lg border border-gray-200 bg-white p-6">
+                                        <p className="text-sm text-gray-500">
+                                            Newsletter Status
+                                        </p>
+
+                                        <p className="mt-3 text-xl font-semibold text-green-600">
+                                            Active
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Subscriber Table */}
+                                {subscriberLoading ? (
+                                    <div className="rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+                                        Loading subscribers...
+                                    </div>
+                                ) : subscribers.length === 0 ? (
+                                    <div className="rounded-lg border border-gray-200 p-8 text-center">
+                                        <h3 className="font-semibold">
+                                            No Subscribers Found
+                                        </h3>
+
+                                        <p className="mt-2 text-sm text-gray-500">
+                                            Newsletter subscribers will appear here.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                                        <table className="w-full min-w-[600px] text-left text-sm">
+                                            <thead className="border-b border-gray-200 bg-gray-50">
+                                                <tr>
+                                                    <th className="px-5 py-4">#</th>
+                                                    <th className="px-5 py-4">Email Address</th>
+                                                    <th className="px-5 py-4">Subscribed Date</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody className="divide-y divide-gray-100">
+                                                {subscribers.map((subscriber, index) => (
+                                                    <tr
+                                                        key={subscriber._id}
+                                                        className="hover:bg-gray-50"
+                                                    >
+                                                        <td className="px-5 py-4 text-gray-500">
+                                                            {index + 1}
+                                                        </td>
+
+                                                        <td className="px-5 py-4 font-medium">
+                                                            {subscriber.email}
+                                                        </td>
+
+                                                        <td className="px-5 py-4 text-gray-600">
+                                                            {subscriber.createdAt
+                                                                ? new Date(
+                                                                    subscriber.createdAt
+                                                                ).toLocaleString()
+                                                                : "Unknown"}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 )}
                             </section>

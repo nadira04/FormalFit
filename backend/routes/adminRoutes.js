@@ -22,6 +22,9 @@ const {
     updateContactStatus,
     deleteContact
 } = require("../controllers/contactController");
+const {
+    getSubscribers
+} = require("../controllers/subscriptionController");
 
 const router = express.Router();
 
@@ -127,5 +130,13 @@ router.delete(
     authMiddleware,
     permissionMiddleware("contact.delete"),
     deleteContact
+);
+
+
+router.get(
+    "/subscribers",
+    authMiddleware,
+    permissionMiddleware("user.view"),
+    getSubscribers
 );
 module.exports = router;
